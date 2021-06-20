@@ -14,6 +14,8 @@ Author URI: http://karsonadam.com
     License URI: http://www.gnu.org/licenses/gpl-2.0.html
 */
 
+use Paymentsds\MPesa\Client;
+
 $wc_mpesa_db_version = "1.2.2";
 add_action('plugins_loaded', 'wc_mpesa_init', 0);
 add_action('plugins_loaded', 'wc_mpesa_update_check');
@@ -55,6 +57,7 @@ function wc_mpesa_update_check()
 function wc_mpesa_init()
 {
     require 'vendor/autoload.php';
+
     if (!class_exists('WC_Payment_Gateway')) return;
     /**
      * Localisation
@@ -160,10 +163,6 @@ function wc_mpesa_init()
             );
         }
 
-
-
-
-
         public function payment_fields()
         {
             session_start();
@@ -183,13 +182,13 @@ function wc_mpesa_init()
             }else{
                 $number = '';
             }
-            
+
 
             // I will echo() the form, but you can close PHP tags and print it directly in HTML
             echo '<fieldset id="wc-' . esc_attr($this->id) . '-cc-form" class="wc-credit-card-form wc-payment-form" style="background:transparent;">';
 
 
-            //Use unique IDs, because other gateways could already use 
+            //Use unique IDs, because other gateways could already use
             echo '<div class="form-row form-row-wide"><label>' . esc_html__('Mpesa number', 'wc-mpesa-payment-gateway') . '<span class="required">*</span></label>
                 <input name="wc_mpesa_number" type="tel" value="' . esc_attr($number) . '" placeholder="' . esc_attr__('ex: 84 123 4567', 'wc-mpesa-payment-gateway') . '">
                 </div>';
@@ -228,7 +227,7 @@ function wc_mpesa_init()
             }
             return $number;
         }
-        
+
 
 
 
@@ -266,7 +265,7 @@ function wc_mpesa_init()
                         'title' => __('Payment failed!', 'wc-mpesa-payment-gateway'),
                         'description' => __('Try again or use your browser\'s back button to change the number.', 'wc-mpesa-payment-gateway')
                     ],
-                    
+
                 ],
                 'buttons' => [
                     'pay' => __('Pay', 'wc-mpesa-payment-gateway'),
@@ -321,15 +320,22 @@ function wc_mpesa_init()
             }
 
             $response = [];
-            
+
 
             //Initialize API
-            $mpesa = new \Karson\MpesaPhpSdk\Mpesa();
-            $mpesa->setApiKey($this->api_key);
-            $mpesa->setPublicKey($this->public_key);
-            if ('yes' != $this->test) {
+            //$mpesa = new \Karson\MpesaPhpSdk\Mpesa();
+            //$mpesa->setApiKey($this->api_key);
+            //$mpesa->setPublicKey($this->public_key);
+
+						$client = new Client([
+							'apiKey' => $this->api_key,
+							'publicKey' => $this->public_key,
+							'serviceProviderCode' => $this->service_provider
+						]);
+
+            /*if ('yes' != $this->test) {
                 $mpesa->setEnv('live');
-            }
+            }*/
 
             //Update code to use wp_send_json status instead custom status to reduce redundancy
             $order = new WC_Order(filter_input(INPUT_POST, 'order_id', FILTER_VALIDATE_INT));
@@ -338,16 +344,25 @@ function wc_mpesa_init()
                 $amount = $order->get_total();
                 $reference_id = $this->generate_reference_id($order_id);
                 $number = "258${number}";
-                try {
-                    $result = $mpesa->c2b($order_id, $number, $amount, $reference_id, $this->service_provider);
-                } catch (\Exception $e) {
+                //try {
+                    //$result = $mpesa->c2b($order_id, $number, $amount, $reference_id, $this->service_provider);
+										$paymentData = [
+											'from' => $number,
+											'reference' => $reference_id,
+											'transaction' => $order_id,
+											'amount' => $amount
+									 ];
+
+										$result = $client->receive($paymentData);
+               /* } catch (\Exception $e) {
                     $response['status'] = 'failed';
                     if (WP_DEBUG) {
                         $response['error_message'] = $e->getMessage();
-                        $response['raw'] =  $result->response;
+                        //$response['raw'] =  $result->response;
+                        $response['raw'] =  $result->error;
                         $response['request'] = [
                             'order_id' => $order_id,
-                             'phone' => $phone,
+                             'phone' => $number,
                              'amount' => $amount,
                              'reference_id' => $reference_id,
                              'service_provider' => $this->service_provider,
@@ -356,10 +371,12 @@ function wc_mpesa_init()
                     return wp_send_json_error($response);
                 }
                 if ('yes' == $this->test) {
-                    $response['raw'] =  $result->response;
-                }
-                if ($result->response->output_ResponseCode == 'INS-0') {
-                    // Mark as paid 
+                  	//$response['raw'] =  $result->response;
+                    $response['raw'] =  $result->data;
+                }*/
+                //if ($result->response->output_ResponseCode == 'INS-0') {
+								if ($result->success) {
+                    // Mark as paid
                     $order->payment_complete();
                     // Reduce stock levels
                     $order->reduce_order_stock();
@@ -372,7 +389,8 @@ function wc_mpesa_init()
                 } else {
                     // Mark as Failed
                     $response['status'] = 'failed';
-                    switch ($result->response->output_ResponseCode) {
+                    //switch ($result->response->output_ResponseCode) {
+                    switch ($result->data['code']) {
                             //show detailed error message
                         case 'INS-13':
                             $error_message  = __('Invalid Shortcode Used!', 'wc-mpesa-payment-gateway');
@@ -399,6 +417,7 @@ function wc_mpesa_init()
                         } else if ($result->response->output_error = 'Bad API Key') {
                             $error_message = __('Bad API Key!', 'wc-mpesa-payment-gateway');
                         }
+
                     }
                     $response['error_message'] = $error_message;
                     $order->update_status('failed', __('Payment failed', 'wc-mpesa-payment-gateway'));
