@@ -24,10 +24,10 @@ let app = new Vue({
       this.status = payment_text.status.requested;
 
       axios.post('?wc-api=process_action', params).then(function (response) {
-        if (response.data.status === 'success') {
+        if (response.data.status == 'success') {
           this.status = payment_text.status.received;
           setTimeout(() => (window.location.href = this.return_url), 5000);
-        } else if (response.data.status === 'failed') {
+        } else if (response.data.status == 'failed') {
           this.status = payment_text.status.failed;
           this.btnDisabled = false;
           clearInterval(this.timerChecker);
